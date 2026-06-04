@@ -1,12 +1,76 @@
-from flask import Flask
+from flask import Flask, request, jsonify
+from config import Config
+from models import db, User
 
 app = Flask(__name__)
+app.config.from_object(Config)
+
+db.init_app(app)
+
+with app.app_context():
+    db.create_all()
 
 
-@app.route('/')
-def hello_world():  # put application's code here
-    return 'Hello World!'
+# CREATE
+@app.route("/users", methods=["POST"])
+def create_user():
+    data = request.get_json()
+
+    user = User(
+        name=data["name"],
+        email=data["email"]
+    )
+
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify(user.to_dict()), 201
 
 
-if __name__ == '__main__':
-    app.run()
+# READ ALL
+@app.route("/users", methods=["GET"])
+def get_users():
+    users = User.query.all()
+
+    return jsonify([
+        user.to_dict()
+        for user in users
+    ])
+
+
+# READ ONE
+@app.route("/users/<int:user_id>", methods=["GET"])
+def get_user(user_id):
+    user = User.query.get_or_404(user_id)
+
+    return jsonify(user.to_dict())
+
+
+# UPDATE
+@app.route("/users/<int:user_id>", methods=["PUT"])
+def update_user(user_id):
+    user = User.query.get_or_404(user_id)
+
+    data = request.get_json()
+
+    user.name = data.get("name", user.name)
+    user.email = data.get("email", user.email)
+
+    db.session.commit()
+
+    return jsonify(user.to_dict())
+
+
+# DELETE
+@app.route("/users/<int:user_id>", methods=["DELETE"])
+def delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+
+    db.session.delete(user)
+    db.session.commit()
+
+    return jsonify({"message": "User deleted"})
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
