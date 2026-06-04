@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from config import Config
 from models import db, User
-
+from celery_app import create_celery
 app = Flask(__name__)
 app.config.from_object(Config)
 
@@ -10,10 +10,22 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+celery = create_celery(app)
+
+import redis
+
+cache = redis.Redis(
+    host="localhost",
+    port=6379,
+    db=1,
+    decode_responses=True
+)
+
 
 # CREATE
 @app.route("/users", methods=["POST"])
 def create_user():
+    from tasks import send_welcome_email
     data = request.get_json()
 
     user = User(
@@ -24,8 +36,14 @@ def create_user():
     db.session.add(user)
     db.session.commit()
 
-    return jsonify(user.to_dict()), 201
+    send_welcome_email.delay(user.email)
+    cache.set(
+        f"user:{user.id}",
+        user.email,
+        ex=300
+    )
 
+    return jsonify(user.to_dict()), 201
 
 # READ ALL
 @app.route("/users", methods=["GET"])
@@ -41,7 +59,19 @@ def get_users():
 # READ ONE
 @app.route("/users/<int:user_id>", methods=["GET"])
 def get_user(user_id):
+    email = cache.get(f"user:{user_id}")
+    if email:
+        data={
+            "id": user_id,
+            "email": email
+        }
+        return data
     user = User.query.get_or_404(user_id)
+    cache.set(
+        f"user:{user.id}",
+        user.email,
+        ex=300
+    )
 
     return jsonify(user.to_dict())
 
